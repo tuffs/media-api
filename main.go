@@ -18,7 +18,24 @@ const (
 
 // MediaItem represents a media item's name
 type MediaItem struct {
-	Name string `json:"name"`
+	Name			string		`json:"name"`
+	Episodes	[]string	`json:"episodes,omitempty"` // Exclusive to TV Shows
+}
+
+// nameTidier removes the file extension and 
+// then removes the periods underscores and hyphens
+// and replaces them with a space for formatted responses
+func nameTidier(name string) string {
+	// Remove the file extension
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+
+	// Replace underscores, hyphens and periods with spaces
+	name = strings.ReplaceAll(name, "_", " ")
+	name = strings.ReplaceAll(name, "-", " ")
+	// Replace multiple periods with a single space
+	name = strings.ReplaceAll(name, ".", " ")
+	// Trim any extra spaces from the string
+	return strings.TrimSpace(name)
 }
 
 // scanDirectory scans a directory and returns a list of file names w/o extensions
@@ -29,9 +46,9 @@ func scanDirectory(dir string) ([]string, error) {
 			return err
 		}
 		if !info.IsDir() {
-			// Extract the name w/o extension
-			name := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
-			names = append(names, name)
+			// Tidy up the name after removing extension and separators
+			tidiedName := nameTidier(info.Name())
+			names = append(names, tidiedName)
 		}
 		return nil
 	})
@@ -39,6 +56,53 @@ func scanDirectory(dir string) ([]string, error) {
 		return nil, err
 	}
 	return names, nil
+}
+
+// scanTVDirectory scans the TV directory for show folder and their episodes recursively
+func scanTVDirectory(dir, term string) ([]MediaItem, error) {
+	var results []MediaItem
+	term = strings.ToLower(term)
+	
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// Look for directories that might represent TV Shows
+		if info.IsDir() && path != dir {
+			// Tidy the directory name for matching
+			dirName := nameTidier(info.Name())
+			if term == "" || strings.Contains(strings.ToLower(dirName), term) {
+				// Found a matching show directory, scan for episodes recursively
+				var episodes []string
+				err := filepath.Walk(path, func(epPath string, epInfo os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					if !epPath.IsDir() {
+						// Collect episode files, tidy their names
+						tidiedName := nameTidier(epInfo.Name())
+						episodes = append(epidoes, tidiedName)
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+				// Only add the show if it has episodes
+				if len(episodes) > 0 {
+					results = append(results, MediaItem{
+						Name:			dirName,
+						Episodes: episodes,
+					})
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // searchMedia filters a list of names based on a search term (case-insensitive substring match).
